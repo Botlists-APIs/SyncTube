@@ -1,20 +1,20 @@
 package server;
 
-import sys.FileSystem;
-import js.node.Buffer;
 import haxe.io.Path;
+import js.node.Buffer;
 import js.node.Fs;
-import js.node.Https;
 import js.node.Http;
-import js.node.url.URL;
+import js.node.Https;
+import js.node.Path as JsPath;
+import js.node.http.ClientRequest;
 import js.node.http.IncomingMessage;
 import js.node.http.ServerResponse;
-import js.node.http.ClientRequest;
-import js.node.Path as JsPath;
+import js.node.url.URL;
+import sys.FileSystem;
+
 using StringTools;
 
 class HttpServer {
-
 	static final mimeTypes = [
 		"html" => "text/html",
 		"js" => "text/javascript",
@@ -50,19 +50,20 @@ class HttpServer {
 	}
 
 	public static function serveFiles(req:IncomingMessage, res:ServerResponse):Void {
-		var url = req.url;
-		if (url == "/") url = "/index.html";
-		var filePath = dir + url;
+		final url = try {
+			new URL(safeDecodeURI(req.url), "http://localhost");
+		} catch (e) new URL("/", "http://localhost");
+		var filePath = getPath(dir, url);
 		final ext = Path.extension(filePath).toLowerCase();
 
 		res.setHeader("Accept-Ranges", "bytes");
 		res.setHeader("Content-Type", getMimeType(ext));
 
-		if (allowLocalRequests && req.connection.remoteAddress == req.connection.localAddress
-			|| allowedLocalFiles[url]) {
+		if (allowLocalRequests && req.socket.remoteAddress == req.socket.localAddress
+			|| allowedLocalFiles[url.pathname]) {
 			if (isMediaExtension(ext)) {
-				allowedLocalFiles[url] = true;
-				if (serveMedia(req, res, url)) return;
+				allowedLocalFiles[url.pathname] = true;
+				if (serveMedia(req, res, url.pathname.urlDecode())) return;
 			}
 		}
 
@@ -73,19 +74,14 @@ class HttpServer {
 			return;
 		}
 
-		if (url.startsWith("/proxy")) {
-			if (!proxyUrl(req, res)) res.end('Cannot proxy ${req.url}');
+		if (url.pathname == "/proxy") {
+			if (!proxyUrl(req, res)) res.end('Proxy error: ${req.url}');
 			return;
 		}
 
 		if (hasCustomRes) {
-			final path = customDir + url;
-			if (Fs.existsSync(path)) {
-				filePath = path;
-				if (FileSystem.isDirectory(filePath)) {
-					filePath = Path.addTrailingSlash(filePath) + "index.html";
-				}
-			}
+			final path = getPath(customDir, url);
+			if (Fs.existsSync(path)) filePath = path;
 		}
 
 		if (isMediaExtension(ext)) {
@@ -105,6 +101,13 @@ class HttpServer {
 		});
 	}
 
+	static function getPath(dir:String, url:URL):String {
+		var filePath = dir + url.pathname;
+		filePath = filePath.urlDecode();
+		if (!FileSystem.isDirectory(filePath)) return filePath;
+		return Path.addTrailingSlash(filePath) + "index.html";
+	}
+
 	static function readFileError(err:Dynamic, res:ServerResponse, filePath:String):Void {
 		if (err.code == "ENOENT") {
 			res.statusCode = 404;
@@ -117,14 +120,17 @@ class HttpServer {
 	}
 
 	static function serveMedia(req:IncomingMessage, res:ServerResponse, filePath:String):Bool {
-		final range:String = req.headers["range"];
-		if (range == null) return false;
 		if (!Fs.existsSync(filePath)) return false;
 		final videoSize = Fs.statSync(filePath).size;
-		// range example: "bytes=24182784-"
+		var range:String = req.headers["range"];
+		if (range == null) range = "bytes=0-";
+		final ranges = ~/[-=]/g.split(range);
+		var start = Std.parseFloat(ranges[1]);
+		if (Utils.isOutOfRange(start, 0, videoSize - 1)) start = 0;
 		final CHUNK_SIZE = 1024 * 1024 * 5; // 5 MB
-		final start = Std.parseInt(~/[^0-9]/g.replace(range, ""));
-		final end = Std.int(Math.min(start + CHUNK_SIZE, videoSize - 1));
+		var end = Std.parseFloat(ranges[2]);
+		if (Math.isNaN(end)) end = start + CHUNK_SIZE;
+		if (Utils.isOutOfRange(end, start, videoSize - 1)) end = videoSize - 1;
 		final contentLength = end - start + 1;
 
 		res.setHeader("Content-Range", 'bytes ${start}-${end}/${videoSize}');
@@ -132,7 +138,7 @@ class HttpServer {
 		// HTTP Status 206 for Partial Content
 		res.statusCode = 206;
 		// create video read stream for this particular chunk
-		final videoStream = Fs.createReadStream(filePath, {start: start, end: end});
+		final videoStream = Fs.createReadStream(filePath, {start: cast start, end: cast end});
 		// stream the video chunk to the client
 		videoStream.pipe(res);
 		return true;
@@ -163,7 +169,7 @@ class HttpServer {
 			if (url == null) return false;
 			final proxy2 = proxyRequest(url, req, res, proxyReq -> false);
 			if (proxy2 == null) {
-				res.end('Proxy error for redirected $url');
+				res.end('Proxy error: multiple redirects for url $url');
 				return true;
 			}
 			req.pipe(proxy2, {end: true});
@@ -176,10 +182,10 @@ class HttpServer {
 
 	static function proxyRequest(
 		url:String, req:IncomingMessage, res:ServerResponse,
-		fn:(req:IncomingMessage)->Bool
+		fn:(req:IncomingMessage) -> Bool
 	):Null<ClientRequest> {
 		final url = try {
-			new URL(js.Node.global.decodeURI(url));
+			new URL(safeDecodeURI(url));
 		} catch (e) return null;
 		if (url.host == req.headers["host"]) return null;
 		final options = {
@@ -196,7 +202,7 @@ class HttpServer {
 			proxyReq.pipe(res, {end: true});
 		});
 		proxy.on("error", err -> {
-			res.end('Proxy error for ${url.href}');
+			res.end('Proxy error: ${url.href}');
 		});
 		return proxy;
 	}
@@ -212,4 +218,19 @@ class HttpServer {
 		return contentType;
 	}
 
+	static final ctrlCharacters = ~/[\u0000-\u001F\u007F-\u009F\u2000-\u200D\uFEFF]/g;
+
+	static function safeDecodeURI(data:String):String {
+		try {
+			data = decodeURI(data);
+		} catch (err) {
+			data = "";
+		}
+		data = ctrlCharacters.replace(data, "");
+		return data;
+	}
+
+	static inline function decodeURI(data:String):String {
+		return js.Syntax.code("decodeURI({0})", data);
+	}
 }

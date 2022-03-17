@@ -1,12 +1,15 @@
 package;
 
+import Types.Permission;
+import Types.Permissions;
+import haxe.EnumFlags;
 #if nodejs
 import js.node.http.IncomingMessage;
 import js.npm.ws.WebSocket;
 #end
-import haxe.EnumFlags;
 
 enum ClientGroup {
+	Banned;
 	User;
 	Leader;
 	Admin;
@@ -18,31 +21,49 @@ typedef ClientData = {
 }
 
 class Client {
-
 	#if nodejs
 	public final ws:WebSocket;
-	public final id:Int;
 	public final req:IncomingMessage;
+	public final id:Int;
 	public var isAlive = true;
 	#end
 	public var name:String;
 	public var group:EnumFlags<ClientGroup>;
+	public var isBanned(get, set):Bool;
 	public var isUser(get, set):Bool;
 	public var isLeader(get, set):Bool;
 	public var isAdmin(get, set):Bool;
 
 	#if nodejs
 	public function new(?ws:WebSocket, ?req:IncomingMessage, ?id:Int, name:String, group:Int) {
-	#else
-	public function new(name:String, group:Int) {
-	#end
-		#if nodejs
 		this.ws = ws;
 		this.req = req;
 		this.id = id;
-		#end
 		this.name = name;
 		this.group = new EnumFlags(group);
+	}
+	#else
+	public function new(name:String, group:Int) {
+		this.name = name;
+		this.group = new EnumFlags(group);
+	}
+	#end
+
+	public function hasPermission(permission:Permission, permissions:Permissions):Bool {
+		final p = permissions;
+		if (isBanned) return p.banned.contains(permission);
+		if (isAdmin) return p.admin.contains(permission);
+		if (isLeader) return p.leader.contains(permission);
+		if (isUser) return p.user.contains(permission);
+		return p.guest.contains(permission);
+	}
+
+	inline function get_isBanned():Bool {
+		return group.has(Banned);
+	}
+
+	inline function set_isBanned(flag:Bool):Bool {
+		return setGroupFlag(Banned, flag);
 	}
 
 	inline function get_isUser():Bool {
@@ -85,5 +106,4 @@ class Client {
 	public static function fromData(data:ClientData):Client {
 		return new Client(data.name, data.group);
 	}
-
 }
