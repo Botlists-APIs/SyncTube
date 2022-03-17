@@ -1,6 +1,6 @@
 {
-	"port": 4200,
-	"channelName": "SyncTube",
+	"port": 80,
+	"channelName": "AhniTube",
 	"maxLoginLength": 20,
 	"maxMessageLength": 500,
 	"serverChatHistory": 50,
@@ -8,14 +8,16 @@
 	"userVideoLimit": 0,
 	"requestLeaderOnPause": false,
 	"localAdmins": true,
+	"allowProxyIps": true,
 	"templateUrl": "https://youtube.com/playlist?list=PL9FiZUDVMu9tc_85frYognMOVFC_-VkSX",
 	"youtubeApiKey": "AIzaSyDTk1OPRI9cDkAK_BKsBcv10DQCHse-QaA",
 	"youtubePlaylistLimit": 50,
 	"permissions": {
-		"guest": ["writeChat", "addVideo", "removeVideo", "changeOrder", "requestLeader", "rewind"],
+		"banned": [],
+		"guest": ["writeChat", "addVideo", "removeVideo", "changeOrder", "toggleItemType", "requestLeader", "rewind"],
 		"user": ["guest"],
 		"leader": ["user"],
-		"admin": ["user", "clearChat", "setLeader", "lockPlaylist"]
+		"admin": ["user", "clearChat", "setLeader", "lockPlaylist", "banClient"]
 	},
 	"emotes": [
 		{"name": ":adorable:", "image": "https://i.imgur.com/5GxNwDY.png"},
@@ -23,6 +25,7 @@
 		{"name": ":artist:", "image": "https://i.imgur.com/8wQxnse.png"},
 		{"name": ":back:", "image": "https://i.imgur.com/hafcTP1.png"},
 		{"name": ":beaten:", "image": "https://i.imgur.com/QIvPD83.png"},
+		{"name": ":bored:", "image":"https://i.imgur.com/11GdCLG.png"},
 		{"name": ":cold:", "image": "https://i.imgur.com/fwgJPJ2.png"},
 		{"name": ":confusion:", "image": "https://i.imgur.com/rQHCTPI.png"},
 		{"name": ":doh:", "image": "https://i.imgur.com/EaFIosT.png"},
